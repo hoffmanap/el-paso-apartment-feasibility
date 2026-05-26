@@ -9,9 +9,9 @@ import plotly.express as px
 from streamlit_folium import st_folium
 
 # 1. Set up the web page configurations
-st.set_page_config(page_title="El Paso Apartment Design & Neighborhood Character", layout="wide")
+st.set_page_config(page_title="El Paso Apartment Feasibility AI", layout="wide")
 
-st.title("🏢 El Paso Apartment Design & Neighborhood Character")
+st.title("🏢 El Paso Apartment Design & Feasibility AI")
 st.markdown("Explore existing multifamily parcels and look at predicted AI massing variables based on zoning, context, and lot features.")
 
 # 2. Path to your prediction outputs (RELATIVE FOR CLOUD HOSTING)
@@ -46,6 +46,9 @@ else:
     density_col = 'density (units per acre)' if 'density (units per acre)' in gdf.columns else None
     coverage_col = 'lot_coverage' if 'lot_coverage' in gdf.columns else None
     
+    # REPLACED: Context mapping linked explicitly to properties/context field
+    context_col = 'context' if 'context' in gdf.columns else gdf.columns[0]
+    
     # AI Fallback structural dim variables (if not present)
     height_col = 'height' if 'height' in gdf.columns else None
     far_col = 'far' if 'far' in gdf.columns else None
@@ -68,8 +71,9 @@ else:
     zoning_options = ["All"] + sorted(list(gdf[zoning_col].astype(str).unique()))
     selected_zoning = st.sidebar.selectbox("Select Zoning District", zoning_options)
     
-    context_options = ["All"] + sorted(list(gdf[structure_desc_col].astype(str).unique()))
-    selected_context = st.sidebar.selectbox("Select Structure Use Description", context_options)
+    # UPDATED: Dropped structure description dropdown and replaced with the Context field filter
+    context_options = ["All"] + sorted(list(gdf[context_col].astype(str).unique()))
+    selected_context = st.sidebar.selectbox("Select Development Context Type", context_options)
     
     decade_options = ["All"] + sorted(list(gdf['decade'].astype(str).unique()))
     selected_decade = st.sidebar.selectbox("Select Construction Era (Decade)", decade_options)
@@ -79,7 +83,7 @@ else:
     if selected_zoning != "All":
         filtered_gdf = filtered_gdf[filtered_gdf[zoning_col] == selected_zoning]
     if selected_context != "All":
-        filtered_gdf = filtered_gdf[filtered_gdf[structure_desc_col] == selected_context]
+        filtered_gdf = filtered_gdf[filtered_gdf[context_col] == selected_context]
     if selected_decade != "All":
         filtered_gdf = filtered_gdf[filtered_gdf['decade'] == selected_decade]
         
@@ -91,8 +95,9 @@ else:
         m = folium.Map(location=[31.85, -106.41], zoom_start=12, tiles="cartodbpositron")
         
         if not filtered_gdf.empty:
-            display_fields = [zoning_col, structure_desc_col, address_col]
-            display_aliases = ['Zoning:', 'Structure Profile:', 'Address:']
+            # Added context_col directly into the map popup array
+            display_fields = [zoning_col, context_col, address_col]
+            display_aliases = ['Zoning:', 'Context:', 'Address:']
             
             popup = folium.GeoJsonPopup(fields=display_fields, aliases=display_aliases, localize=True, labels=True)
             folium.GeoJson(
@@ -109,7 +114,6 @@ else:
             gdf_numeric = filtered_gdf.copy()
             gdf_numeric['lot_size_numeric'] = pd.to_numeric(gdf_numeric[lot_area_col], errors='coerce')
             
-            # Map tracking targets using the exact density column requested
             density_target = density_col if density_col in gdf_numeric.columns else unit_count_col
             gdf_numeric['density_numeric'] = pd.to_numeric(gdf_numeric[density_target], errors='coerce')
             
@@ -145,6 +149,7 @@ else:
         st.subheader("📋 Complete Architectural & Property Log")
         table_mapping = [
             (address_col, "Property Address"),
+            (context_col, "Development Context Type"),
             (structure_desc_col, "Structure Typology Description"),
             (lot_area_col, "Lot Size (sqft)"),
             (year_col, "Year Built")
@@ -175,6 +180,8 @@ else:
                 display_df["Density (Units/Acre)"] = pd.to_numeric(display_df["Density (Units/Acre)"], errors='coerce').round(1)
             if "Property Address" in display_df.columns:
                 display_df["Property Address"] = display_df["Property Address"].astype(str).str.upper()
+            if "Development Context Type" in display_df.columns:
+                display_df["Development Context Type"] = display_df["Development Context Type"].astype(str).str.title()
             if "Structure Typology Description" in display_df.columns:
                 display_df["Structure Typology Description"] = display_df["Structure Typology Description"].astype(str).str.title()
                 
@@ -202,8 +209,6 @@ else:
         
         # Pull or estimate heights based on envelope scales
         avg_height = get_safe_mean(active_source, height_col, 24.0 if avg_units <= 8 else 45.0)
-        
-        # FIXED: Extract lot coverage mean factor directly from the dynamic column file
         avg_coverage = get_safe_mean(active_source, coverage_col, min(avg_footprint / max(avg_parcel_area, 1.0), 0.65))
         
         # Total Building Area = Building Footprint (sqfeet) * (Height / 12 feet per story)
@@ -238,7 +243,6 @@ else:
             st.metric("Avg Estimated Height", f"{avg_height:.1f} ft")
         with m_col2:
             st.metric("Avg Base Lot Size", f"{avg_parcel_area:,.0f} sq ft")
-            # FIXED: Label customized to "Average Lot Coverage" and converted safely to percentages
             st.metric("Average Lot Coverage", f"{avg_coverage * 100:.2f}%" if avg_coverage <= 1.0 else f"{avg_coverage:.2f}%")
             st.metric("Avg Floor Area Ratio (FAR)", f"{avg_far:.2f}")
             
