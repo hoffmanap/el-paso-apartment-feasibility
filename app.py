@@ -26,6 +26,17 @@ def load_web_data(path):
     
     # Standardize ALL columns to lowercase right out of the gate
     gdf.columns = [c.replace('properties/', '').lower().strip() for c in gdf.columns]
+    
+    # --- FIX: IDENTITY THE LOT SIZE COLUMN AND PURGE BLACK/NULL VALUES ---
+    lot_col = 'gissqft' if 'gissqft' in gdf.columns else gdf.columns[5]
+    
+    if lot_col in gdf.columns:
+        # Force conversion to numeric values, turning text/corrupted blanks into NaN
+        gdf[lot_col] = pd.to_numeric(gdf[lot_col], errors='coerce')
+        # Drop rows where lot size is missing, null, blank, or explicitly zero
+        gdf = gdf.dropna(subset=[lot_col])
+        gdf = gdf[gdf[lot_col] > 0]
+        
     return gdf.to_crs(epsg=4326)
 
 gdf = load_web_data(prediction_file)
@@ -156,10 +167,9 @@ else:
                 if db_col in filtered_gdf.columns:
                     display_df[clean_title] = filtered_gdf[db_col]
             
-            # FIXED: Robust formatting to ensure Lot Size extracts and maps digits accurately
+            # Formats ONLY rows that passed the initial load_web_data filtering pipeline
             if "Lot Size (sqft)" in display_df.columns:
-                display_df["Lot Size (sqft)"] = pd.to_numeric(display_df["Lot Size (sqft)"], errors='coerce').fillna(0).astype(float)
-                display_df["Lot Size (sqft)"] = display_df["Lot Size (sqft)"].apply(lambda x: f"{x:,.0f}" if x > 0 else "N/A")
+                display_df["Lot Size (sqft)"] = display_df["Lot Size (sqft)"].apply(lambda x: f"{x:,.0f}" if pd.notnull(x) and x > 0 else "N/A")
                 
             if "Property Address" in display_df.columns:
                 display_df["Property Address"] = display_df["Property Address"].astype(str).str.upper()
