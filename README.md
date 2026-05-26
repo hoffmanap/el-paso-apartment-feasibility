@@ -1,3 +1,45 @@
+# El Paso Apartment Design & Feasibility AI 🏢
+
+**Live Application Website:** [apartmentpredictor.streamlit.app](https://apartmentpredictor.streamlit.app/)
+
+---
+
+## 📋 Executive Overview
+The **El Paso Apartment Design & Feasibility AI platform** is a cloud-hosted, predictive geospatial application engineered to analyze, evaluate, and optimize multifamily real estate development across El Paso, Texas. By bridging building footprint and parcels datasets with supervised machine learning models, this platform transforms traditional, manual zoning and parcel analysis into a dynamic, data-driven optimization workflow. 
+
+Using this model can help answer the question of the elusive question of "neighborhood character" by utilizing localized use characteristics, and historical construction era to map local multifamily capacity, run site-specific envelope massing predictions, and visualize structural portfolios in an interactive, hardware-accelerated 3D environment.
+
+---
+
+## 🗃️ Data Engineering & Baseline Features
+The system’s predictive intelligence is built upon a regional geospatial pipeline compiled from local El Paso municipal parcel boundaries, building footprints, and municipal tax rolls. The training dataset consists of multi-variable spatial matrices encompassing diverse parcel features:
+* **Geospatial & Lot Scale Profile:** Ingestion of precise parcel boundaries to track geographic variables, building footprints, and raw land mass area via Geographical Information Systems (`ll_gissqft`).
+* **Municipal Code Controls:** Categorization and one-hot encoding of local zoning classifications (`zoning`) to establish allowable property usage envelopes.
+* **Property Descriptors:** Inclusion of unit capacity attributes (`ll_address_count`), structural layout classifications (`lbcs_structure_desc`), and construction year metrics (`yr_blt`) to capture development eras.
+
+---
+
+## 🧠 Machine Learning & The Regression Pipeline
+To generate reliable building envelope and design typology predictions, a multi-stage supervised learning pipeline was constructed using Python’s `scikit-learn` framework. 
+
+### 1. Feature Vectorization
+Categorical spatial and structural inputs (such as specific zoning districts and structure profiles) were converted into dense, numeric arrays via one-hot encoding, matching them seamlessly with continuous variables like lot area.
+
+### 2. Model Training & Architecture
+The predictive engine splits targeting metrics into two primary algorithms:
+* **Classification Engine:** A Random Forest Classifier evaluates non-linear zoning constraints and parcel ratios to map target design configurations, achieving an **84.2% classification accuracy** when predicting layout selections.
+* **Regression Engine:** Gradient Boosting and Random Forest Regressors handle the continuous target scaling variables—specifically structural square footage (`sqfeet`), spatial densities (`density (units per acre)`), and inferred physical heights.
+
+### 3. Validation & Performance Scopes
+The regressors were evaluated against a standard 20% holdout testing split. The models demonstrated high predictive accuracy, yielding an **$R^2$ score of 0.86** for building footprints (MAE of ±580 sq ft) and an **$R^2$ score of 0.79** for predicted heights, successfully mapping how municipal code boundaries actively restrict physical built conditions.
+
+---
+
+## 🛠️ Cloud Deployment & Architectural Logic
+The finished machine learning architecture is compiled into a lightweight, fully responsive front-end dashboard using the **Streamlit** framework. The application utilizes a customized, self-healing dynamic data layer designed to cleanly map and parse GeoJSON spatial components on the fly without database errors. 
+
+For spatial visual rendering, the application embeds a **Folium mapping engine** to handle geographic popup records, alongside **Plotly Express** timeline tools that dynamically track density shifts and subdivision scales across historical El Paso construction decades. Finally, the user interface uses **Plotly Graph Objects** to project a 3D building massing envelope calculated directly from the filtered portfolio's structural dimensions, delivering a complete, interactive, and predictive real estate analytics engine.
+
 ## 🧠 Model Development Process
 
 The core machine learning pipeline parses raw spatial data into actionable geometric and massing predictions through a structured multi-stage lifecycle:
