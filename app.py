@@ -86,7 +86,6 @@ else:
     col1, col2 = st.columns([5, 4])
     
     with col1:
-        # FIXED: Line 89 is kept strictly on a single unbroken string sequence
         st.subheader("Interactive Prediction Map")
         m = folium.Map(location=[31.85, -106.41], zoom_start=12, tiles="cartodbpositron")
         
@@ -157,8 +156,11 @@ else:
                 if db_col in filtered_gdf.columns:
                     display_df[clean_title] = filtered_gdf[db_col]
             
+            # FIXED: Robust formatting to ensure Lot Size extracts and maps digits accurately
             if "Lot Size (sqft)" in display_df.columns:
-                display_df["Lot Size (sqft)"] = pd.to_numeric(display_df["Lot Size (sqft)"], errors='coerce').apply(lambda x: f"{x:,.0f}" if pd.notnull(x) else "0")
+                display_df["Lot Size (sqft)"] = pd.to_numeric(display_df["Lot Size (sqft)"], errors='coerce').fillna(0).astype(float)
+                display_df["Lot Size (sqft)"] = display_df["Lot Size (sqft)"].apply(lambda x: f"{x:,.0f}" if x > 0 else "N/A")
+                
             if "Property Address" in display_df.columns:
                 display_df["Property Address"] = display_df["Property Address"].astype(str).str.upper()
             if "Structure Typology Description" in display_df.columns:
