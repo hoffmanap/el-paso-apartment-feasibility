@@ -34,11 +34,3 @@ The predictive performance of each target variable was rigorously validated agai
 | **Floor Area Ratio (FAR)**| MAE | **± 0.12** | Highly reliable baseline tracking for local density modeling. |
 
 ---
-
-## 🛠️ Local Installation & Development
-
-To run the interactive web application dashboard on your local machine, complete the following setup steps:
-
-1. Clone or download your repository folder:
-```bash
-   cd "C:\Users\Angelica\OneDrive\Apartment Analysis"
