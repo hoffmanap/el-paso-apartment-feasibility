@@ -32,28 +32,36 @@ gdf = load_web_data(prediction_file)
 if gdf is None:
     st.error(f"Could not find the predictions file at {prediction_file}. Please make sure you've successfully run predict_footprints.py first and your 'data' folder is pushed to GitHub!")
 else:
-    # --- TAILORED FIELDS MATCHING YOUR GEOJSON PROPERTIES ---
-    zoning_col = 'zoning'
-    context_col = 'lbcs_structure_desc'  # Use structural description as geographic context
-    address_col = 'address'
-    year_col = 'yr_blt'                  # Track year built for the decade era filter
+    # --- FIXED: SELF-HEALING COLUMN SCANNER ENGINE ---
+    # This searches the uploaded file dynamically to find closest matching columns
+    def find_best_column(preferred_names, backup_keywords):
+        for name in preferred_names:
+            if name in gdf.columns:
+                return name
+        for keyword in backup_keywords:
+            for col in gdf.columns:
+                if keyword in col:
+                    return col
+        return gdf.columns[0] # absolute baseline fallback
+
+    # Dynamically locate columns based on your provided keys
+    zoning_col = find_best_column(['zoning', 'zoning_district'], ['zone'])
+    context_col = find_best_column(['lbcs_structure_desc', 'use_desc', 'context'], ['desc', 'use', 'structure', 'type'])
+    address_col = find_best_column(['address', 'prop_add', 'prop_addr'], ['add', 'loc', 'street'])
+    year_col = find_best_column(['yr_blt', 'year_built', 'year'], ['yr', 'blt', 'built', 'date'])
     
-    # Real data variables present in your architectural file log
-    unit_count_col = 'll_address_count' if 'll_address_count' in gdf.columns else None
-    roughness_col = 'roughness_rating' if 'roughness_rating' in gdf.columns else None
-    high_elev_col = 'highest_parcel_elevation' if 'highest_parcel_elevation' in gdf.columns else None
-    low_elev_col = 'lowest_parcel_elevation' if 'lowest_parcel_elevation' in gdf.columns else None
-    parking_col = 'offstreet' if 'offstreet' in gdf.columns else None
+    # Optional parameters fallback setup
+    unit_count_col = find_best_column(['ll_address_count', 'units'], ['count', 'unit', 'res']) if any('count' in c or 'unit' in c for c in gdf.columns) else None
+    lot_area_col = find_best_column(['gissqft', 'll_gissqft', 'parcel_area'], ['sqft', 'lot', 'area', 'gis'])
     
-    # AI Physical Target Variable Fallbacks (used for 3D model computations)
-    height_col = 'height' if 'height' in gdf.columns else None
-    footprint_col = 'footprint' if 'footprint' in gdf.columns else None
-    coverage_col = 'coverage' if 'coverage' in gdf.columns else None
-    far_col = 'far' if 'far' in gdf.columns else None
-    shape_col = 'shape' if 'shape' in gdf.columns else None
-    width_col = 'width' if 'width' in gdf.columns else None
-    depth_col = 'depth' if 'depth' in gdf.columns else None
-    lot_area_col = 'gissqft' if 'gissqft' in gdf.columns else ('ll_gissqft' if 'll_gissqft' in gdf.columns else gdf.columns[1])
+    # AI Massing model characteristics fallbacks (maps cleanly if they exist)
+    height_col = find_best_column(['height'], ['height', 'ft']) if 'height' in ''.join(gdf.columns) else None
+    footprint_col = find_best_column(['footprint'], ['foot', 'print']) if 'footprint' in ''.join(gdf.columns) else None
+    coverage_col = find_best_column(['coverage'], ['cover']) if 'coverage' in ''.join(gdf.columns) else None
+    far_col = find_best_column(['far'], ['far', 'ratio']) if 'far' in ''.join(gdf.columns) else None
+    shape_col = find_best_column(['shape'], ['shape', 'type']) if 'shape' in ''.join(gdf.columns) else None
+    width_col = find_best_column(['width'], ['width']) if 'width' in ''.join(gdf.columns) else None
+    depth_col = find_best_column(['depth'], ['depth']) if 'depth' in ''.join(gdf.columns) else None
 
     # --- DYNAMIC DECADE CREATOR FROM YR_BLT ---
     if year_col and year_col in gdf.columns:
@@ -71,13 +79,12 @@ else:
     selected_zoning = st.sidebar.selectbox("Select Zoning District", zoning_options)
     
     context_options = ["All"] + sorted(list(gdf[context_col].astype(str).unique()))
-    selected_context = st.sidebar.selectbox("Select Use Description", context_options)
+    selected_context = st.sidebar.selectbox("Select Use/Structure Context", context_options)
     
-    # FIXED: Ensured both the unique method and outer list structures are safely closed off
     decade_options = ["All"] + sorted(list(gdf['decade'].astype(str).unique()))
     selected_decade = st.sidebar.selectbox("Select Construction Era (Decade)", decade_options)
     
-    # Filter geographic data dynamically based on selection layout matrix
+    # Filter geographic data dynamically
     filtered_gdf = gdf.copy()
     if selected_zoning != "All":
         filtered_gdf = filtered_gdf[filtered_gdf[zoning_col] == selected_zoning]
@@ -95,7 +102,7 @@ else:
         
         if not filtered_gdf.empty:
             display_fields = [zoning_col, context_col, address_col]
-            display_aliases = ['Zoning:', 'Use Description:', 'Address:']
+            display_aliases = ['Zoning:', 'Context/Use:', 'Address:']
             
             popup = folium.GeoJsonPopup(fields=display_fields, aliases=display_aliases, localize=True, labels=True)
             folium.GeoJson(
@@ -117,7 +124,7 @@ else:
         if coverage_col in filtered_gdf.columns: table_mapping.append((coverage_col, "Lot Coverage"))
         if lot_area_col in filtered_gdf.columns: table_mapping.append((lot_area_col, "Lot Size (sqft)"))
         if footprint_col in filtered_gdf.columns: table_mapping.append((footprint_col, "Footprint Size (sqft)"))
-        if unit_count_col in filtered_gdf.columns: table_mapping.append((unit_count_col, "Residential Units"))
+        if unit_count_col and unit_count_col in filtered_gdf.columns: table_mapping.append((unit_count_col, "Residential Units"))
         if year_col in filtered_gdf.columns: table_mapping.append((year_col, "Year Built"))
         
         if not filtered_gdf.empty:
@@ -126,7 +133,7 @@ else:
                 if db_col in filtered_gdf.columns:
                     display_df[clean_title] = filtered_gdf[db_col]
             
-            # Format numbers beautifully across data profiles
+            # Format numbers beautifully
             if "Predicted Height (ft)" in display_df.columns:
                 display_df["Predicted Height (ft)"] = pd.to_numeric(display_df["Predicted Height (ft)"], errors='coerce').round(1)
             if "Floor Area Ratio (FAR)" in display_df.columns:
@@ -162,7 +169,7 @@ else:
                     return float(val) if pd.notnull(val) else default_value
             return default_value
 
-        # Extract envelope parameters with high performance safe defaults
+        # Calculate means
         avg_height = get_safe_mean(active_source, height_col, 35.0)
         avg_footprint = get_safe_mean(active_source, footprint_col, 4500.0)
         avg_coverage = get_safe_mean(active_source, coverage_col, 0.40)
