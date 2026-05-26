@@ -1,4 +1,5 @@
 streamlit
 geopandas
 folium
+plotly
 streamlit-folium
