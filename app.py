@@ -33,25 +33,20 @@ gdf = load_web_data(prediction_file)
 if gdf is None:
     st.error(f"Could not find the predictions file at {prediction_file}. Please make sure you've successfully run predict_footprints.py first and your 'data' folder is pushed to GitHub!")
 else:
-    # --- FIXED: HARDCODED TO MATCH YOUR EXACT ATTRIBUTE SPELLINGS ---
+    # --- LOCKED-IN SCHEMA STRINGS MATCHING YOUR ACTUAL COLUMNS ---
     zoning_col = 'zoning' if 'zoning' in gdf.columns else gdf.columns[0]
     address_col = 'address' if 'address' in gdf.columns else gdf.columns[1]
     year_col = 'yr_blt' if 'yr_blt' in gdf.columns else gdf.columns[2]
     structure_desc_col = 'lbcs_structure_desc' if 'lbcs_structure_desc' in gdf.columns else gdf.columns[3]
     unit_count_col = 'll_address_count' if 'll_address_count' in gdf.columns else gdf.columns[4]
     
-    # Dynamically look for any column name containing 'sqft' or 'area' to map lot size safely
-    lot_area_col = None
-    for col in gdf.columns:
-        if 'sqft' in col or 'area' in col or 'gis' in col:
-            lot_area_col = col
-            break
-    if not lot_area_col:
-        lot_area_col = gdf.columns[5] # Absolute final fallback
-
-    # AI Massing model characteristics fallbacks 
+    # EXACT EXPLICIT USER MAPPINGS (Case-normalized to matching lowercase rules)
+    lot_area_col = 'll_gissqft' if 'll_gissqft' in gdf.columns else gdf.columns[5]
+    footprint_col = 'sqfeet' if 'sqfeet' in gdf.columns else None
+    density_col = 'density (units per acre)' if 'density (units per acre)' in gdf.columns else None
+    
+    # AI Fallback structural dim variables (if not present)
     height_col = 'height' if 'height' in gdf.columns else None
-    footprint_col = 'footprint' if 'footprint' in gdf.columns else None
     coverage_col = 'coverage' if 'coverage' in gdf.columns else None
     far_col = 'far' if 'far' in gdf.columns else None
     shape_col = 'shape' if 'shape' in gdf.columns else None
@@ -113,18 +108,21 @@ else:
         if not filtered_gdf.empty:
             gdf_numeric = filtered_gdf.copy()
             gdf_numeric['lot_size_numeric'] = pd.to_numeric(gdf_numeric[lot_area_col], errors='coerce')
-            gdf_numeric['units_numeric'] = pd.to_numeric(gdf_numeric[unit_count_col], errors='coerce')
+            
+            # Map tracking targets using the exact density column requested
+            density_target = density_col if density_col in gdf_numeric.columns else unit_count_col
+            gdf_numeric['density_numeric'] = pd.to_numeric(gdf_numeric[density_target], errors='coerce')
             
             timeline_df = gdf_numeric.groupby('decade').agg(
                 avg_lot_size=('lot_size_numeric', 'mean'),
-                avg_density=('units_numeric', 'mean')
+                avg_density=('density_numeric', 'mean')
             ).reset_index()
             
             timeline_df = timeline_df[timeline_df['decade'] != "Unknown Era"].sort_values('decade')
             timeline_df['decade'] = timeline_df['decade'].astype(str)
             
             if not timeline_df.empty:
-                chart_tab1, chart_tab2 = st.tabs(["📐 Average Lot Size Trend", "👥 Unit Density Trend"])
+                chart_tab1, chart_tab2 = st.tabs(["📐 Average Lot Size Trend", "👥 Density Trend"])
                 with chart_tab1:
                     fig_lot = px.area(timeline_df, x='decade', y='avg_lot_size', markers=True,
                                       labels={'decade': 'Construction Decade', 'avg_lot_size': 'Avg Lot Size (sqft)'},
@@ -133,9 +131,10 @@ else:
                     fig_lot.update_layout(xaxis_type='category')
                     st.plotly_chart(fig_lot, use_container_width=True)
                 with chart_tab2:
+                    y_label_text = 'Avg Units Per Acre' if density_target == density_col else 'Avg Unit Count per Lot'
                     fig_density = px.bar(timeline_df, x='decade', y='avg_density',
-                                         labels={'decade': 'Construction Decade', 'avg_density': 'Avg Unit Count per Lot'},
-                                         title='Evolution of Multi-family Development Intensity')
+                                         labels={'decade': 'Construction Decade', 'avg_density': y_label_text},
+                                         title='Evolution of Multi-family Development Density')
                     fig_density.update_traces(marker_color='#3186cc')
                     fig_density.update_layout(xaxis_type='category')
                     st.plotly_chart(fig_density, use_container_width=True)
@@ -147,14 +146,15 @@ else:
         table_mapping = [
             (address_col, "Property Address"),
             (structure_desc_col, "Structure Typology Description"),
-            (unit_count_col, "Residential Units Count"),
             (lot_area_col, "Lot Size (sqft)"),
             (year_col, "Year Built")
         ]
+        if footprint_col: table_mapping.append((footprint_col, "Building Footprint (sqft)"))
+        if unit_count_col: table_mapping.append((unit_count_col, "Residential Units Count"))
+        if density_col: table_mapping.append((density_col, "Density (Units/Acre)"))
         if height_col: table_mapping.append((height_col, "Predicted Height (ft)"))
         if far_col: table_mapping.append((far_col, "Floor Area Ratio (FAR)"))
         if coverage_col: table_mapping.append((coverage_col, "Lot Coverage"))
-        if footprint_col: table_mapping.append((footprint_col, "Footprint Size (sqft)"))
         
         if not filtered_gdf.empty:
             display_df = pd.DataFrame()
@@ -162,11 +162,13 @@ else:
                 if db_col in filtered_gdf.columns:
                     display_df[clean_title] = filtered_gdf[db_col]
             
-            # FIXED: Safe numeric conversion that falls back to a clean text label if it encounters strings/nulls
+            # Format numbers beautifully 
             if "Lot Size (sqft)" in display_df.columns:
-                converted_series = pd.to_numeric(display_df["Lot Size (sqft)"], errors='coerce')
-                display_df["Lot Size (sqft)"] = converted_series.apply(lambda x: f"{x:,.0f}" if pd.notnull(x) and x > 0 else "Pending Prediction Data")
-                
+                display_df["Lot Size (sqft)"] = pd.to_numeric(display_df["Lot Size (sqft)"], errors='coerce').apply(lambda x: f"{x:,.0f}" if pd.notnull(x) and x > 0 else "N/A")
+            if "Building Footprint (sqft)" in display_df.columns:
+                display_df["Building Footprint (sqft)"] = pd.to_numeric(display_df["Building Footprint (sqft)"], errors='coerce').apply(lambda x: f"{x:,.0f}" if pd.notnull(x) and x > 0 else "N/A")
+            if "Density (Units/Acre)" in display_df.columns:
+                display_df["Density (Units/Acre)"] = pd.to_numeric(display_df["Density (Units/Acre)"], errors='coerce').round(1)
             if "Property Address" in display_df.columns:
                 display_df["Property Address"] = display_df["Property Address"].astype(str).str.upper()
             if "Structure Typology Description" in display_df.columns:
@@ -189,25 +191,28 @@ else:
                     return float(val) if pd.notnull(val) else default_value
             return default_value
 
-        # Baseline envelope dimensional characteristics
+        # Extract authentic descriptive scale parameters cleanly
         avg_parcel_area = get_safe_mean(active_source, lot_area_col, 12000.0)
+        avg_footprint = get_safe_mean(active_source, footprint_col, avg_parcel_area * 0.38)
         avg_units = get_safe_mean(active_source, unit_count_col, 8.0)
         
-        avg_w = get_safe_mean(active_source, width_col, 80.0)
-        avg_d = get_safe_mean(active_source, depth_col, 50.0)
-        
-        # Pull or calculate structural envelopes 
-        avg_footprint = get_safe_mean(active_source, footprint_col, avg_parcel_area * 0.38)
+        # Pull or estimate heights based on envelope scales
         avg_height = get_safe_mean(active_source, height_col, 24.0 if avg_units <= 8 else 45.0)
         avg_coverage = get_safe_mean(active_source, coverage_col, min(avg_footprint / max(avg_parcel_area, 1.0), 0.65))
         
-        # Custom dynamic architectural calculation loop for FAR
+        # --- FIXED FAR FORMULA INTERACTION RULE ---
+        # Total Building Area = Building Footprint (sqfeet) * (Height / 12 feet per story)
+        # FAR = Total Building Area / Lot Size (ll_gissqft)
         estimated_stories = max(avg_height / 12.0, 1.0)
         total_building_area = avg_footprint * estimated_stories
         
         avg_far = float(total_building_area / max(avg_parcel_area, 1.0))
         avg_far = float(np.clip(avg_far, 0.05, 12.0))
 
+        # Dynamic fallback parameters for structural dimension widths/depths
+        avg_w = get_safe_mean(active_source, width_col, np.sqrt(avg_footprint) * 1.3)
+        avg_d = get_safe_mean(active_source, depth_col, avg_footprint / max(avg_w, 1.0))
+        
         if structure_desc_col in active_source.columns and not active_source[structure_desc_col].dropna().empty:
             most_common_desc = str(active_source[structure_desc_col].dropna().mode()[0]).title()
         else:
