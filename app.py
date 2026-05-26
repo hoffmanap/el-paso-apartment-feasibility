@@ -32,8 +32,7 @@ gdf = load_web_data(prediction_file)
 if gdf is None:
     st.error(f"Could not find the predictions file at {prediction_file}. Please make sure you've successfully run predict_footprints.py first and your 'data' folder is pushed to GitHub!")
 else:
-    # --- FIXED: SELF-HEALING COLUMN SCANNER ENGINE ---
-    # This searches the uploaded file dynamically to find closest matching columns
+    # --- SELF-HEALING COLUMN SCANNER ENGINE ---
     def find_best_column(preferred_names, backup_keywords):
         for name in preferred_names:
             if name in gdf.columns:
@@ -42,7 +41,7 @@ else:
             for col in gdf.columns:
                 if keyword in col:
                     return col
-        return gdf.columns[0] # absolute baseline fallback
+        return gdf.columns[0]
 
     # Dynamically locate columns based on your provided keys
     zoning_col = find_best_column(['zoning', 'zoning_district'], ['zone'])
@@ -50,7 +49,6 @@ else:
     address_col = find_best_column(['address', 'prop_add', 'prop_addr'], ['add', 'loc', 'street'])
     year_col = find_best_column(['yr_blt', 'year_built', 'year'], ['yr', 'blt', 'built', 'date'])
     
-    # Optional parameters fallback setup
     unit_count_col = find_best_column(['ll_address_count', 'units'], ['count', 'unit', 'res']) if any('count' in c or 'unit' in c for c in gdf.columns) else None
     lot_area_col = find_best_column(['gissqft', 'll_gissqft', 'parcel_area'], ['sqft', 'lot', 'area', 'gis'])
     
@@ -118,7 +116,7 @@ else:
         
         table_mapping = []
         if address_col in filtered_gdf.columns: table_mapping.append((address_col, "Property Address"))
-        if shape_col in filtered_gdf.columns: table_mapping.append((shape_col, "Shape Typology"))
+        if shape_col and shape_col in filtered_gdf.columns: table_mapping.append((shape_col, "Shape Typology"))
         if height_col in filtered_gdf.columns: table_mapping.append((height_col, "Predicted Height (ft)"))
         if far_col in filtered_gdf.columns: table_mapping.append((far_col, "Floor Area Ratio (FAR)"))
         if coverage_col in filtered_gdf.columns: table_mapping.append((coverage_col, "Lot Coverage"))
@@ -179,10 +177,11 @@ else:
         avg_w = get_safe_mean(active_source, width_col, 80.0)
         avg_d = get_safe_mean(active_source, depth_col, 50.0)
         
-        if shape_col and shape_col in active_source.columns and not active_source[shape_col].dropna().empty:
-            most_common_shape = str(active_source[shape_col].dropna().mode()[0]).title()
+        # FIXED: Pulled directly from the structural classification column description mapping
+        if context_col and context_col in active_source.columns and not active_source[context_col].dropna().empty:
+            most_common_type = str(active_source[context_col].dropna().mode()[0]).title()
         else:
-            most_common_shape = "Rectangle / Box"
+            most_common_type = "Multifamily Apartment Structure"
             
         # Render Metrics Card Matrix Array
         m_col1, m_col2 = st.columns(2)
@@ -198,19 +197,12 @@ else:
                 st.metric("Avg Lot Coverage Factor", f"{avg_coverage:.1f}%")
             st.metric("Avg Floor Area Ratio (FAR)", f"{avg_far:.2f}")
             
-        # --- EXPLICIT TEXT SHAPE CALLOUT BANNER ---
+        # --- FIXED EXPLICIT TEXT SHAPE CALLOUT BANNER ---
         st.markdown("---")
-        st.info(f"🔮 **AI Predicted Building Configuration:** The models indicate that the most structurally optimal design typology for this selection is a **{most_common_shape}** layout configuration.")
+        st.info(f"🔮 **AI Portfolio Design Typology:** The models indicate that the primary architectural configuration for this selection is optimized for a **{most_common_type}** development layout.")
         
         # Render hardware-accelerated 3D Architectural Envelope Massing
         st.subheader("📦 3D Architectural Envelope Massing")
-        
-        color_map = {
-            'rectangle / box': 'rgba(49, 134, 204, 0.8)',
-            'l-shape / t-shape': 'rgba(230, 126, 34, 0.8)',
-            'complex / courtyard': 'rgba(155, 89, 182, 0.8)'
-        }
-        mesh_color = color_map.get(most_common_shape.lower().strip(), 'rgba(49, 134, 204, 0.8)')
         
         w, d, h = max(avg_w, 20.0), max(avg_d, 20.0), max(avg_height, 10.0)
         
@@ -225,7 +217,7 @@ else:
                 j=[0, 4, 1, 2, 5, 6, 2, 3, 7, 7, 7, 6],
                 k=[3, 7, 5, 6, 1, 2, 6, 7, 6, 0, 5, 1],
                 opacity=0.85,
-                color=mesh_color,
+                color='rgba(49, 134, 204, 0.8)',
                 flatshading=True
             )
         ])
