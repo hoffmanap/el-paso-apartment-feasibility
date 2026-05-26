@@ -25,18 +25,7 @@ def load_web_data(path):
     gdf = gpd.read_file(path)
     
     # Standardize ALL columns to lowercase right out of the gate
-    gdf.columns = [c.replace('properties/', '').lower().strip() for c in gdf.columns]
-    
-    # --- FIX: IDENTITY THE LOT SIZE COLUMN AND PURGE BLACK/NULL VALUES ---
-    lot_col = 'gissqft' if 'gissqft' in gdf.columns else gdf.columns[5]
-    
-    if lot_col in gdf.columns:
-        # Force conversion to numeric values, turning text/corrupted blanks into NaN
-        gdf[lot_col] = pd.to_numeric(gdf[lot_col], errors='coerce')
-        # Drop rows where lot size is missing, null, blank, or explicitly zero
-        gdf = gdf.dropna(subset=[lot_col])
-        gdf = gdf[gdf[lot_col] > 0]
-        
+    gdf.columns = [str(c).replace('properties/', '').lower().strip() for c in gdf.columns]
     return gdf.to_crs(epsg=4326)
 
 gdf = load_web_data(prediction_file)
@@ -44,17 +33,23 @@ gdf = load_web_data(prediction_file)
 if gdf is None:
     st.error(f"Could not find the predictions file at {prediction_file}. Please make sure you've successfully run predict_footprints.py first and your 'data' folder is pushed to GitHub!")
 else:
-    # --- HARDCODED STABLE COLUMN CONFIGURATIONS ---
+    # --- FIXED: HARDCODED TO MATCH YOUR EXACT ATTRIBUTE SPELLINGS ---
     zoning_col = 'zoning' if 'zoning' in gdf.columns else gdf.columns[0]
     address_col = 'address' if 'address' in gdf.columns else gdf.columns[1]
     year_col = 'yr_blt' if 'yr_blt' in gdf.columns else gdf.columns[2]
-    
-    # Structural description mapping locked down explicitly
     structure_desc_col = 'lbcs_structure_desc' if 'lbcs_structure_desc' in gdf.columns else gdf.columns[3]
     unit_count_col = 'll_address_count' if 'll_address_count' in gdf.columns else gdf.columns[4]
-    lot_area_col = 'gissqft' if 'gissqft' in gdf.columns else gdf.columns[5]
     
-    # AI Massing model characteristics fallbacks (checks columns cleanly)
+    # Dynamically look for any column name containing 'sqft' or 'area' to map lot size safely
+    lot_area_col = None
+    for col in gdf.columns:
+        if 'sqft' in col or 'area' in col or 'gis' in col:
+            lot_area_col = col
+            break
+    if not lot_area_col:
+        lot_area_col = gdf.columns[5] # Absolute final fallback
+
+    # AI Massing model characteristics fallbacks 
     height_col = 'height' if 'height' in gdf.columns else None
     footprint_col = 'footprint' if 'footprint' in gdf.columns else None
     coverage_col = 'coverage' if 'coverage' in gdf.columns else None
@@ -167,9 +162,10 @@ else:
                 if db_col in filtered_gdf.columns:
                     display_df[clean_title] = filtered_gdf[db_col]
             
-            # Formats ONLY rows that passed the initial load_web_data filtering pipeline
+            # FIXED: Safe numeric conversion that falls back to a clean text label if it encounters strings/nulls
             if "Lot Size (sqft)" in display_df.columns:
-                display_df["Lot Size (sqft)"] = display_df["Lot Size (sqft)"].apply(lambda x: f"{x:,.0f}" if pd.notnull(x) and x > 0 else "N/A")
+                converted_series = pd.to_numeric(display_df["Lot Size (sqft)"], errors='coerce')
+                display_df["Lot Size (sqft)"] = converted_series.apply(lambda x: f"{x:,.0f}" if pd.notnull(x) and x > 0 else "Pending Prediction Data")
                 
             if "Property Address" in display_df.columns:
                 display_df["Property Address"] = display_df["Property Address"].astype(str).str.upper()
