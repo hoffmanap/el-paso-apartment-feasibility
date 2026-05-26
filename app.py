@@ -9,9 +9,9 @@ import plotly.express as px
 from streamlit_folium import st_folium
 
 # 1. Set up the web page configurations
-st.set_page_config(page_title="El Paso Apartment Feasibility AI", layout="wide")
+st.set_page_config(page_title="El Paso Apartment Design & Neighborhood Character", layout="wide")
 
-st.title("🏢 El Paso Apartment Design & Feasibility AI")
+st.title("🏢 El Paso Apartment Design & Neighborhood Character")
 st.markdown("Explore existing multifamily parcels and look at predicted AI massing variables based on zoning, context, and lot features.")
 
 # 2. Path to your prediction outputs (RELATIVE FOR CLOUD HOSTING)
@@ -44,10 +44,10 @@ else:
     lot_area_col = 'll_gissqft' if 'll_gissqft' in gdf.columns else gdf.columns[5]
     footprint_col = 'sqfeet' if 'sqfeet' in gdf.columns else None
     density_col = 'density (units per acre)' if 'density (units per acre)' in gdf.columns else None
+    coverage_col = 'lot_coverage' if 'lot_coverage' in gdf.columns else None
     
     # AI Fallback structural dim variables (if not present)
     height_col = 'height' if 'height' in gdf.columns else None
-    coverage_col = 'coverage' if 'coverage' in gdf.columns else None
     far_col = 'far' if 'far' in gdf.columns else None
     shape_col = 'shape' if 'shape' in gdf.columns else None
     width_col = 'width' if 'width' in gdf.columns else None
@@ -134,7 +134,7 @@ else:
                     y_label_text = 'Avg Units Per Acre' if density_target == density_col else 'Avg Unit Count per Lot'
                     fig_density = px.bar(timeline_df, x='decade', y='avg_density',
                                          labels={'decade': 'Construction Decade', 'avg_density': y_label_text},
-                                         title='Evolution of Multi-family Development Density')
+                                         title='Evolution of Multi-family Development Intensity')
                     fig_density.update_traces(marker_color='#3186cc')
                     fig_density.update_layout(xaxis_type='category')
                     st.plotly_chart(fig_density, use_container_width=True)
@@ -150,11 +150,11 @@ else:
             (year_col, "Year Built")
         ]
         if footprint_col: table_mapping.append((footprint_col, "Building Footprint (sqft)"))
+        if coverage_col: table_mapping.append((coverage_col, "Average Lot Coverage"))
         if unit_count_col: table_mapping.append((unit_count_col, "Residential Units Count"))
         if density_col: table_mapping.append((density_col, "Density (Units/Acre)"))
         if height_col: table_mapping.append((height_col, "Predicted Height (ft)"))
         if far_col: table_mapping.append((far_col, "Floor Area Ratio (FAR)"))
-        if coverage_col: table_mapping.append((coverage_col, "Lot Coverage"))
         
         if not filtered_gdf.empty:
             display_df = pd.DataFrame()
@@ -167,6 +167,10 @@ else:
                 display_df["Lot Size (sqft)"] = pd.to_numeric(display_df["Lot Size (sqft)"], errors='coerce').apply(lambda x: f"{x:,.0f}" if pd.notnull(x) and x > 0 else "N/A")
             if "Building Footprint (sqft)" in display_df.columns:
                 display_df["Building Footprint (sqft)"] = pd.to_numeric(display_df["Building Footprint (sqft)"], errors='coerce').apply(lambda x: f"{x:,.0f}" if pd.notnull(x) and x > 0 else "N/A")
+            if "Average Lot Coverage" in display_df.columns:
+                display_df["Average Lot Coverage"] = pd.to_numeric(display_df["Average Lot Coverage"], errors='coerce').apply(
+                    lambda x: f"{x * 100:.2f}%" if pd.notnull(x) else "N/A"
+                )
             if "Density (Units/Acre)" in display_df.columns:
                 display_df["Density (Units/Acre)"] = pd.to_numeric(display_df["Density (Units/Acre)"], errors='coerce').round(1)
             if "Property Address" in display_df.columns:
@@ -198,9 +202,10 @@ else:
         
         # Pull or estimate heights based on envelope scales
         avg_height = get_safe_mean(active_source, height_col, 24.0 if avg_units <= 8 else 45.0)
+        
+        # FIXED: Extract lot coverage mean factor directly from the dynamic column file
         avg_coverage = get_safe_mean(active_source, coverage_col, min(avg_footprint / max(avg_parcel_area, 1.0), 0.65))
         
-        # --- FIXED FAR FORMULA INTERACTION RULE ---
         # Total Building Area = Building Footprint (sqfeet) * (Height / 12 feet per story)
         # FAR = Total Building Area / Lot Size (ll_gissqft)
         estimated_stories = max(avg_height / 12.0, 1.0)
@@ -233,7 +238,8 @@ else:
             st.metric("Avg Estimated Height", f"{avg_height:.1f} ft")
         with m_col2:
             st.metric("Avg Base Lot Size", f"{avg_parcel_area:,.0f} sq ft")
-            st.metric("Avg Lot Coverage Factor", f"{avg_coverage * 100:.1f}%" if avg_coverage <= 1.0 else f"{avg_coverage:.1f}%")
+            # FIXED: Label customized to "Average Lot Coverage" and converted safely to percentages
+            st.metric("Average Lot Coverage", f"{avg_coverage * 100:.2f}%" if avg_coverage <= 1.0 else f"{avg_coverage:.2f}%")
             st.metric("Avg Floor Area Ratio (FAR)", f"{avg_far:.2f}")
             
         # --- EXPLICIT TEXT SHAPE CALLOUT BANNER ---
