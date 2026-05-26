@@ -102,10 +102,9 @@ else:
             
         st_data = st_folium(m, width=700, height=450)
         
-        # --- 3) ADDED: HISTORICAL TIMELINE DEVELOPMENT TREND CHARTS ---
+        # --- HISTORICAL TIMELINE DEVELOPMENT TREND CHARTS ---
         st.subheader("📈 Regional Density & Lot Characteristics Over Time")
         if not filtered_gdf.empty:
-            # Group data dynamically by construction decade to compute trends safely
             gdf_numeric = filtered_gdf.copy()
             gdf_numeric['lot_size_numeric'] = pd.to_numeric(gdf_numeric[lot_area_col], errors='coerce')
             gdf_numeric['units_numeric'] = pd.to_numeric(gdf_numeric[unit_count_col], errors='coerce')
@@ -115,7 +114,6 @@ else:
                 avg_density=('units_numeric', 'mean')
             ).reset_index()
             
-            # Remove "Unknown Era" from trending graph logic for axis consistency
             timeline_df = timeline_df[timeline_df['decade'] != "Unknown Era"].sort_values('decade')
             
             if not timeline_df.empty:
@@ -124,7 +122,8 @@ else:
                     fig_lot = px.line(timeline_df, x='decade', y='avg_lot_size', markers=True,
                                       labels={'decade': 'Construction Decade', 'avg_lot_size': 'Avg Lot Size (sqft)'},
                                       title='Evolution of Average Parcel Subdivision Scale')
-                    fig_lot.update_traces(line_color='#2c3e50', lw=3)
+                    # FIXED: Swapped out the 'lw' property typo for standard Plotly dict properties
+                    fig_lot.update_traces(line=dict(color='#2c3e50', width=3))
                     st.plotly_chart(fig_lot, use_container_width=True)
                 with chart_tab2:
                     fig_density = px.bar(timeline_df, x='decade', y='avg_density',
@@ -179,15 +178,12 @@ else:
                     return float(val) if pd.notnull(val) else default_value
             return default_value
 
-        # --- 1) FIXED: DYNAMIC ARCHITECTURAL CALCULATION LOOP FOR FAR ---
         avg_parcel_area = get_safe_mean(active_source, lot_area_col, 12000.0)
         avg_units = get_safe_mean(active_source, unit_count_col, 8.0)
         
-        # Calculate dynamic implied FAR based on active unit counts instead of static placeholders
-        # Assumes a baseline average unit size of 850 sqft plus a 15% building core/hallway multiplier
         if lot_area_col in active_source.columns and unit_count_col in active_source.columns:
             calculated_far = (avg_units * 850.0 * 1.15) / max(avg_parcel_area, 1.0)
-            avg_far = float(np.clip(calculated_far, 0.1, 4.0)) # keep inside realistic zoning bounds
+            avg_far = float(np.clip(calculated_far, 0.1, 4.0))
         else:
             avg_far = 0.85
 
@@ -199,7 +195,6 @@ else:
         avg_w = get_safe_mean(active_source, width_col, 80.0)
         avg_d = get_safe_mean(active_source, depth_col, 50.0)
         
-        # --- 2) FIXED: EXTRACT ACTUAL STRUCTURE STRINGS FROM LBCS_STRUCTURE_DESC ---
         if structure_desc_col in active_source.columns and not active_source[structure_desc_col].dropna().empty:
             most_common_desc = str(active_source[structure_desc_col].dropna().mode()[0]).title()
         else:
@@ -222,9 +217,9 @@ else:
         with m_col2:
             st.metric("Avg Base Lot Size", f"{avg_parcel_area:,.0f} sq ft")
             st.metric("Avg Lot Coverage Factor", f"{avg_coverage * 100:.1f}%" if avg_coverage <= 1.0 else f"{avg_coverage:.1f}%")
-            st.metric("Avg Floor Area Ratio (FAR)", f"{avg_far:.2f}") # Dynamic updating metrics text call!
+            st.metric("Avg Floor Area Ratio (FAR)", f"{avg_far:.2f}")
             
-        # --- 2) FIXED EXPLICIT TEXT SHAPE CALLOUT BANNER ---
+        # --- EXPLICIT TEXT SHAPE CALLOUT BANNER ---
         st.markdown("---")
         st.info(f"🔮 **AI Portfolio Design Typology:** The models parse your selected criteria as a **{most_common_desc}**. Based on development constraints, the optimal footprint massing fits a **{inferred_shape}** layout configuration.")
         
