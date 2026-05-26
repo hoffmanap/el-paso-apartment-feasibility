@@ -1,0 +1,152 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>El Paso Hybrid Feasibility Engine</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+</head>
+<body class="bg-gray-900 text-white flex h-screen w-screen overflow-hidden">
+
+    <div class="w-1/4 bg-gray-800 p-6 flex flex-col space-y-6 border-r border-gray-700 overflow-y-auto">
+        <h2 class="text-xl font-bold border-b border-gray-700 pb-2 text-indigo-400">Option A: Market Archetypes</h2>
+        
+        <div>
+            <label class="block text-xs font-semibold uppercase text-gray-400 mb-1">Target Development Era</label>
+            <input type="range" id="year_built" min="1950" max="2026" value="2026" class="w-full accent-indigo-500">
+            <span id="year_label" class="text-sm text-gray-300">2026 (Modern Codes)</span>
+        </div>
+
+        <div>
+            <label class="block text-xs font-semibold uppercase text-gray-400 mb-1">Context Archetype</label>
+            <select id="context" class="w-full bg-gray-700 border border-gray-600 rounded p-2 text-sm">
+                <option value="urban">Urban Core (High Density / Zero Lot Line)</option>
+                <option value="suburban">Suburban Ring (Surface Parking Dependent)</option>
+            </select>
+        </div>
+
+        <div class="p-4 bg-gray-750 border border-indigo-500/30 rounded bg-indigo-950/20">
+            <h3 class="text-sm font-bold text-indigo-300 mb-2">Option A Statistical Yield:</h3>
+            <p class="text-xs text-gray-400">Typical Depth: <span id="typ_depth" class="font-mono text-white text-sm">-</span></p>
+            <p class="text-xs text-gray-400">Typical Width: <span id="typ_width" class="font-mono text-white text-sm">-</span></p>
+        </div>
+        
+        <h2 class="text-xl font-bold border-b border-gray-700 pt-4 pb-2 text-emerald-400">Option B: Parcel Test</h2>
+        <p class="text-xs text-gray-400">Click a mapped parcel geometry, or input artificial test bounds manually below.</p>
+        
+        <div class="grid grid-cols-2 gap-2">
+            <div>
+                <label class="block text-xs text-gray-400">Lot Width (ft)</label>
+                <input type="number" id="p_width" value="120" class="w-full bg-gray-700 rounded p-1 text-sm">
+            </div>
+            <div>
+                <label class="block text-xs text-gray-400">Lot Depth (ft)</label>
+                <input type="number" id="p_depth" value="150" class="w-full bg-gray-700 rounded p-1 text-sm">
+            </div>
+        </div>
+        <button id="run_btn" class="w-full bg-emerald-600 hover:bg-emerald-500 text-white font-bold p-2 rounded transition text-sm">Generate Building Program</button>
+    </div>
+
+    <div id="canvas-container" class="w-3/4 h-full bg-black relative">
+        <div class="absolute top-4 right-4 bg-gray-900/90 border border-gray-700 p-4 rounded z-10 text-xs space-y-1">
+            <span class="font-bold text-sm block mb-1 text-gray-300">Live Evaluation Program:</span>
+            <div><span class="inline-block w-3 h-3 bg-red-500 mr-2"></span>Parcel Boundary Envelope</div>
+            <div><span class="inline-block w-3 h-3 bg-green-500 mr-2"></span>Buildable Setback Envelope</div>
+            <div><span class="inline-block w-3 h-3 bg-indigo-500 mr-2"></span>Option B Generated Massing</div>
+        </div>
+    </div>
+
+    <script>
+        // Setup simple 3D canvas viewport environment
+        const container = document.getElementById('canvas-container');
+        const scene = new THREE.Scene();
+        const camera = new THREE.PerspectiveCamera(45, container.clientWidth / container.clientHeight, 1, 1000);
+        const renderer = new THREE.WebGLRenderer({ antialias: true });
+        renderer.setSize(container.clientWidth, container.clientHeight);
+        container.appendChild(renderer.domElement);
+
+        // Grid and Lighting
+        const gridHelper = new THREE.GridHelper(200, 50, 0x444444, 0x222222);
+        gridHelper.position.y = -0.01;
+        scene.add(gridHelper);
+        const light = new THREE.DirectionalLight(0xffffff, 1.2);
+        light.position.set(10, 20, 15).normalize();
+        scene.add(light);
+        scene.add(new THREE.AmbientLight(0x404040));
+        camera.position.set(100, 150, 200);
+        camera.lookAt(0, 0, 0);
+
+        // Global reference objects to clear on rewrite
+        let parcelMesh, buildableMesh, buildingMesh;
+
+        async function updateSimulation() {
+            const payload = {
+                year_built: parseInt(document.getElementById('year_built').value),
+                context: document.getElementById('context').value,
+                parcel_width: parseFloat(document.getElementById('p_width').value),
+                parcel_depth: parseFloat(document.getElementById('p_depth').value),
+                zoning_district: 'R-3'
+            };
+
+            // Post properties out to the localized analytical Python server
+            const response = await fetch('http://localhost:5000/api/analyze-and-generate', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(payload)
+            });
+            const data = await response.json();
+
+            // Update UI Panel elements for Option A
+            document.getElementById('typ_depth').innerText = data.option_a.predicted_typical_depth.toFixed(1) + " ft";
+            document.getElementById('typ_width').innerText = data.option_a.predicted_typical_width.toFixed(1) + " ft";
+
+            // Clear historical objects from canvas graph
+            if (parcelMesh) scene.remove(parcelMesh);
+            if (buildableMesh) scene.remove(buildableMesh);
+            if (buildingMesh) scene.remove(buildingMesh);
+
+            // Re-render Option B Geometries onto Viewport
+            const p = data.option_b.parcel_dimensions;
+            const opt = data.option_b.optimized_footprint;
+            const sb = data.option_b.setbacks;
+
+            // 1. Draw Outermost Parcel Extents (Red Frame)
+            const pGeo = new THREE.BoxGeometry(p.width, 0.5, p.depth);
+            const pMat = new THREE.MeshBasicMaterial({ color: 0xff0000, wireframe: true });
+            parcelMesh = new THREE.Mesh(pGeo, pMat);
+            scene.add(parcelMesh);
+
+            // 2. Draw Legal Setback Envelope (Green Frame)
+            const bWidth = p.width - (sb.side * 2);
+            const bDepth = p.depth - sb.front - sb.rear;
+            const bGeo = new THREE.BoxGeometry(bWidth, 0.6, bDepth);
+            const bMat = new THREE.MeshBasicMaterial({ color: 0x00ff00, wireframe: true });
+            buildableMesh = new THREE.Mesh(bGeo, bMat);
+            buildableMesh.position.set(0, 0, (sb.front - sb.rear)/2);
+            scene.add(buildableMesh);
+
+            // 3. Render Solid Generative Multi-Family Massing Block (Indigo Solid)
+            const buildGeo = new THREE.BoxGeometry(opt.width, 30, opt.depth); // 30ft heights (~3 stories)
+            const buildMat = new THREE.MeshLambertMaterial({ color: 0x4f46e5, transparent: true, opacity: 0.85 });
+            buildingMesh = new THREE.Mesh(buildGeo, buildMat);
+            buildingMesh.position.set(0, 15, (sb.front - sb.rear)/2); // Translate to sit properly on floor line
+            scene.add(buildingMesh);
+        }
+
+        // Event hooks
+        document.getElementById('run_btn').addEventListener('click', updateSimulation);
+        document.getElementById('year_built').addEventListener('input', (e) => {
+            document.getElementById('year_label').innerText = e.target.value + (e.target.value > 2020 ? " (Modern Codes)" : " (Historical Framework)");
+            updateSimulation();
+        });
+
+        // Loop execution ticks
+        function animate() {
+            requestAnimationFrame(animate);
+            renderer.render(scene, camera);
+        }
+        animate();
+        updateSimulation(); // First initial render execution check
+    </script>
+</body>
+</html>
